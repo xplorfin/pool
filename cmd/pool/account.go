@@ -270,6 +270,14 @@ var depositAccountCommand = cli.Command{
 			Usage: "the fee rate expressed in sat/vbyte that " +
 				"should be used for the deposit",
 		},
+		cli.BoolFlag{
+			Name:  "allow_unconfirmed",
+			Usage: "whether or not unconfirmed utxos can be used for funding.",
+		},
+		cli.StringFlag{
+			Name:  "lnd_utxo_address",
+			Usage: "if specified, the utxo address in LND to withdraw from",
+		},
 	},
 	Action: depositAccount,
 }
@@ -289,6 +297,14 @@ func depositAccount(ctx *cli.Context) error {
 		return err
 	}
 
+	allowUnconfirmed := ctx.Bool("allow_unconfirmed")
+
+	lndUtxoAddress, err := parseStr(ctx, 4, "lnd_utxo_address", cmd)
+	if err != nil {
+		return err
+	}
+
+	utxoAddressBytes := []byte(lndUtxoAddress)
 	// Enforce a minimum fee rate of 253 sat/kw by rounding up if 1
 	// sat/byte is used.
 	feeRate := chainfee.SatPerKVByte(satPerVByte * 1000).FeePerKWeight()
@@ -304,9 +320,11 @@ func depositAccount(ctx *cli.Context) error {
 
 	resp, err := client.DepositAccount(
 		context.Background(), &poolrpc.DepositAccountRequest{
-			TraderKey:       traderKey,
-			AmountSat:       amt,
-			FeeRateSatPerKw: uint64(feeRate),
+			TraderKey:        traderKey,
+			AmountSat:        amt,
+			FeeRateSatPerKw:  uint64(feeRate),
+			AllowUnconfirmed: allowUnconfirmed,
+			LndUtxoAddress:   utxoAddressBytes,
 		},
 	)
 	if err != nil {

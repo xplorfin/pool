@@ -943,7 +943,6 @@
         },
         "lnd_utxo_address": {
           "type": "string",
-          "format": "byte",
           "description": "A specific address on LND which has UTXOs to withdraw funds from.\nIf specified, DepositAccount() will only use funds which were sent\nto the specified address. If not specified (default behavior),\nDepositAccount() will use any available UTXOs for funding."
         },
         "allow_unconfirmed": {

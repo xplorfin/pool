@@ -1,7 +1,6 @@
 package account
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/btcsuite/btcd/chaincfg"
 
@@ -18,20 +17,20 @@ import (
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
 func selectInputs(amt btcutil.Amount, coins []chanfunding.Coin,
-	lndUtxoAddress []byte) (btcutil.Amount, []chanfunding.Coin, error) {
+	lndUtxoAddress string) (btcutil.Amount, []chanfunding.Coin, error) {
 
 	var selectedCoins []chanfunding.Coin
 
 	satSelected := btcutil.Amount(0)
 	for _, coin := range coins {
-		if lndUtxoAddress != nil {
+		if lndUtxoAddress != "" {
 			decodedPkScriptAddress, err := decodePkScriptToAddress(coin.PkScript)
 			if err != nil {
 				// TODO: do something with this error
 				continue
 			}
 
-			if !bytes.Equal(decodedPkScriptAddress, lndUtxoAddress) {
+			if decodedPkScriptAddress != lndUtxoAddress {
 				continue
 			}
 		}
@@ -55,7 +54,7 @@ func selectInputs(amt btcutil.Amount, coins []chanfunding.Coin,
 // TODO(wilmer): Replace this with a variant in lnd that allows us to specify
 // the base inputs and outputs, rather than assuming we're funding a channel.
 func coinSelection(coins []chanfunding.Coin, amt btcutil.Amount,
-	witnessType witnessType, feeRate chainfee.SatPerKWeight, lndUtxoAddress []byte) (
+	witnessType witnessType, feeRate chainfee.SatPerKWeight, lndUtxoAddress string) (
 	[]chanfunding.Coin, btcutil.Amount, error) {
 
 	amtNeeded := amt
@@ -118,15 +117,15 @@ func coinSelection(coins []chanfunding.Coin, amt btcutil.Amount,
 	}
 }
 
-func decodePkScriptToAddress(pkScript []byte) ([]byte, error) {
+func decodePkScriptToAddress(pkScript []byte) (string, error) {
 	_, addresses, _, err := txscript.ExtractPkScriptAddrs(pkScript, &chaincfg.MainNetParams)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode public key script: %v", err)
+		return "", fmt.Errorf("unable to decode public key script: %v", err)
 	}
 
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("no addresses decoded from pkScript %x", pkScript)
+		return "", fmt.Errorf("no addresses decoded from pkScript %x", pkScript)
 	}
 
-	return addresses[0].ScriptAddress(), nil
+	return addresses[0].String(), nil
 }

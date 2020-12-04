@@ -368,7 +368,7 @@ message DepositAccountRequest {
     to the specified address. If not specified (default behavior),
     DepositAccount() will use any available UTXOs for funding.
      */
-    bytes lnd_utxo_address = 4;
+    string lnd_utxo_address = 4;
 
     /*
     If true, allows DepositAccount() to use unconfirmed UTXOs from LND

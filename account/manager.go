@@ -964,7 +964,7 @@ func (m *Manager) handleAccountExpiry(traderKey *btcec.PublicKey) error {
 func (m *Manager) DepositAccount(ctx context.Context,
 	traderKey *btcec.PublicKey, depositAmount btcutil.Amount,
 	feeRate chainfee.SatPerKWeight, bestHeight uint32,
-	allowUnconfirmed bool, lndUtxoAddress []byte) (*Account,
+	allowUnconfirmed bool, lndUtxoAddress string) (*Account,
 	*wire.MsgTx, error) {
 
 	// The account can only be modified in `StateOpen` and its new value
@@ -1584,7 +1584,7 @@ func valueAfterWithdrawal(accountBeforeWithdrawl *Account,
 func (m *Manager) inputsForDeposit(ctx context.Context,
 	depositAmount btcutil.Amount, witnessType witnessType,
 	feeRate chainfee.SatPerKWeight, allowUnconfirmed bool,
-	lndWalletAddress []byte) ([]chanfunding.Coin, func(),
+	lndWalletAddress string) ([]chanfunding.Coin, func(),
 	*wire.TxOut, error) {
 
 	// We'll start by obtaining our global lock ID.

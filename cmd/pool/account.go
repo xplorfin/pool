@@ -304,7 +304,6 @@ func depositAccount(ctx *cli.Context) error {
 		return err
 	}
 
-	utxoAddressBytes := []byte(lndUtxoAddress)
 	// Enforce a minimum fee rate of 253 sat/kw by rounding up if 1
 	// sat/byte is used.
 	feeRate := chainfee.SatPerKVByte(satPerVByte * 1000).FeePerKWeight()
@@ -324,7 +323,7 @@ func depositAccount(ctx *cli.Context) error {
 			AmountSat:        amt,
 			FeeRateSatPerKw:  uint64(feeRate),
 			AllowUnconfirmed: allowUnconfirmed,
-			LndUtxoAddress:   utxoAddressBytes,
+			LndUtxoAddress:   lndUtxoAddress,
 		},
 	)
 	if err != nil {

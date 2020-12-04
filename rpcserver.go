@@ -747,9 +747,6 @@ func (s *rpcServer) DepositAccount(ctx context.Context,
 	allowUnconfirmed := req.GetAllowUnconfirmed()
 
 	lndUtxoAddress := req.GetLndUtxoAddress()
-	if len(lndUtxoAddress) == 0 {
-		lndUtxoAddress = nil
-	}
 
 	// Proceed to process the deposit and map its response to the RPC's
 	// response.

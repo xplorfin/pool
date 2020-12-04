@@ -744,11 +744,19 @@ func (s *rpcServer) DepositAccount(ctx context.Context,
 			"minimum is %d sat/kw", feeRate, chainfee.FeePerKwFloor)
 	}
 
+	allowUnconfirmed := req.GetAllowUnconfirmed()
+
+	lndUtxoAddress := req.GetLndUtxoAddress()
+	if len(lndUtxoAddress) == 0 {
+		lndUtxoAddress = nil
+	}
+
 	// Proceed to process the deposit and map its response to the RPC's
 	// response.
 	modifiedAccount, tx, err := s.accountManager.DepositAccount(
 		ctx, traderKey, btcutil.Amount(req.AmountSat), feeRate,
-		atomic.LoadUint32(&s.bestHeight),
+		atomic.LoadUint32(&s.bestHeight), allowUnconfirmed,
+		lndUtxoAddress,
 	)
 	if err != nil {
 		return nil, err

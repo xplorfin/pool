@@ -374,6 +374,7 @@ func (h *testHarness) assertAuctioneerReceived(inputs []*lnwallet.Utxo,
 	if len(outputs) != len(h.auctioneer.outputsReceived) {
 		h.t.Fatal("auctioneer output count mismatch")
 	}
+
 	for _, output := range outputs {
 		found := false
 		for _, outputReceived := range h.auctioneer.outputsReceived {
@@ -430,6 +431,7 @@ func (h *testHarness) assertAccountModification(account *Account,
 	for _, mod := range mods {
 		mod(account)
 	}
+
 	h.assertAccountExists(account)
 
 	// Notify the transaction as a spend of the account. The account should
@@ -980,7 +982,7 @@ func TestAccountDeposit(t *testing.T) {
 	// was performed correctly.
 	_, _, err := h.manager.DepositAccount(
 		context.Background(), account.TraderKey.PubKey, depositAmount,
-		feeRate, bestHeight,
+		feeRate, bestHeight, false, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to process account deposit: %v", err)
@@ -1014,6 +1016,147 @@ func TestAccountDeposit(t *testing.T) {
 		valueAfterDeposit, accountInputIdx, accountOutputIdx,
 		bestHeight,
 	)
+
+	// Finally, close the account to ensure we can process another spend
+	// after the withdrawal.
+	expr := defaultFeeExpr
+	_ = h.closeAccount(account, &expr, bestHeight)
+}
+
+// TestAccountDepositSpecifyLndWalletAddress ensures that we can process an account deposit
+// through the happy flow.
+func TestAccountDepositSpecifyLndWalletAddress(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHarness(t)
+	h.start()
+	defer h.stop()
+
+	// We'll start by defining our initial account value and its value after
+	// a successful deposit.
+	const initialAccountValue = MinAccountValue
+	const valueAfterDeposit = initialAccountValue * 2
+	const depositAmount = valueAfterDeposit - initialAccountValue
+
+	const bestHeight = 100
+	account := h.openAccount(
+		initialAccountValue, bestHeight+maxAccountExpiry, bestHeight,
+	)
+
+	// extract the desired lnd wallet address to use
+	// from its pubkey
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(p2wpkh, &chaincfg.MainNetParams)
+	if err != nil {
+		t.Log(err)
+	}
+
+	desiredAddr := addrs[0].ScriptAddress()
+
+	// We'll provide four outputs to the mock wallet
+	// which will be consumed by the deposit;
+	// two will be using a specific address which we want to withdraw from (p2wpkh),
+	// two will be from a different address.
+	h.wallet.utxos = []*lnwallet.Utxo{
+		{
+			AddressType: lnwallet.NestedWitnessPubKey,
+			Value:       depositAmount,
+			OutPoint:    wire.OutPoint{Index: 1},
+			PkScript:    np2wpkh,
+		},
+		{
+			AddressType: lnwallet.NestedWitnessPubKey,
+			Value:       depositAmount,
+			OutPoint:    wire.OutPoint{Index: 2},
+			PkScript:    np2wpkh,
+		},
+		{
+			AddressType: lnwallet.WitnessPubKey,
+			Value:       depositAmount,
+			// Use an outpoint greater than the current account to
+			// test the filtering of inputs provided to the
+			// auctioneer.
+			OutPoint: wire.OutPoint{
+				Hash:  account.OutPoint.Hash,
+				Index: account.OutPoint.Index + 1,
+			},
+			PkScript: p2wpkh,
+		},
+		{
+			AddressType: lnwallet.WitnessPubKey,
+			Value:       25000,
+			// Use an outpoint greater than the current account to
+			// test the filtering of inputs provided to the
+			// auctioneer.
+			OutPoint: wire.OutPoint{
+				Hash:  account.OutPoint.Hash,
+				Index: account.OutPoint.Index + 2,
+			},
+			PkScript: p2wpkh,
+		},
+	}
+
+	selectedInputs := []*lnwallet.Utxo{
+		h.wallet.utxos[2], h.wallet.utxos[3],
+	}
+
+	// We'll use the lowest fee rate possible, which should yield a
+	// transaction fee of 346 satoshis when taking into account the
+	// additional inputs needed to satisfy the deposit.
+	const feeRate = chainfee.FeePerKwFloor
+	const expectedFee btcutil.Amount = 346
+
+	// Attempt the deposit.
+	//
+	// If successful, we'll follow with a series of assertions to ensure it
+	// was performed correctly.
+	_, txMsg, err := h.manager.DepositAccount(
+		context.Background(), account.TraderKey.PubKey, depositAmount,
+		feeRate, bestHeight, false, desiredAddr,
+	)
+
+	if err != nil {
+		t.Fatalf("unable to process account deposit: %v", err)
+	}
+
+	// We should expect to see a change output with the current UTXOs
+	// available, so we'll reconstruct what we expect to see in the deposit
+	// transaction.
+	addr, err := btcutil.NewAddressWitnessPubKeyHash(
+		btcutil.Hash160(testRawTraderKey), &chaincfg.MainNetParams,
+	)
+
+	if err != nil {
+		t.Fatalf("unable to create address: %v", err)
+	}
+
+	pkScript, err := txscript.PayToAddrScript(addr)
+	if err != nil {
+		t.Fatalf("unable to create address script: %v", err)
+	}
+
+	if len(txMsg.TxOut) == 0 {
+		t.Fatalf("no outputs in transaction returned by DepositAccount")
+	}
+
+	changeOutputValue := txMsg.TxOut[0].Value
+
+	changeOutput := &wire.TxOut{
+		Value:    changeOutputValue,
+		PkScript: pkScript,
+	}
+
+	// The transaction should have find the expected account input and
+	// output at the following indices.
+	const accountInputIdx = 1
+	const accountOutputIdx = 1
+
+	h.assertAccountModification(
+		account, selectedInputs, []*wire.TxOut{changeOutput},
+		valueAfterDeposit, accountInputIdx, accountOutputIdx,
+		bestHeight,
+	)
+
+	fmt.Println("asserted account modification!")
 
 	// Finally, close the account to ensure we can process another spend
 	// after the withdrawal.

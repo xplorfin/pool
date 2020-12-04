@@ -963,7 +963,8 @@ func (m *Manager) handleAccountExpiry(traderKey *btcec.PublicKey) error {
 // to lnd may be added to the deposit transaction.
 func (m *Manager) DepositAccount(ctx context.Context,
 	traderKey *btcec.PublicKey, depositAmount btcutil.Amount,
-	feeRate chainfee.SatPerKWeight, bestHeight uint32) (*Account,
+	feeRate chainfee.SatPerKWeight, bestHeight uint32,
+	allowUnconfirmed bool, lndUtxoAddress []byte) (*Account,
 	*wire.MsgTx, error) {
 
 	// The account can only be modified in `StateOpen` and its new value
@@ -972,6 +973,7 @@ func (m *Manager) DepositAccount(ctx context.Context,
 	if err != nil {
 		return nil, nil, err
 	}
+
 	if account.State != StateOpen {
 		return nil, nil, fmt.Errorf("account must be in %v to be "+
 			"modified", StateOpen)
@@ -997,15 +999,19 @@ func (m *Manager) DepositAccount(ctx context.Context,
 	// selected inputs, along with a change output if needed, will then be
 	// included in the deposit transaction we'll broadcast.
 	witnessType := determineWitnessType(account, bestHeight)
+
 	inputs, releaseInputs, changeOutput, err := m.inputsForDeposit(
 		ctx, depositAmount, witnessType, feeRate,
+		allowUnconfirmed, lndUtxoAddress,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	newAccountOutput, modifiers, err := createNewAccountOutput(
 		account, newAccountValue,
 	)
+
 	if err != nil {
 		releaseInputs()
 		return nil, nil, err
@@ -1019,11 +1025,13 @@ func (m *Manager) DepositAccount(ctx context.Context,
 	if changeOutput != nil {
 		outputs = append(outputs, changeOutput)
 	}
+
 	modifiers = append(modifiers, StateModifier(StatePendingUpdate))
 	modifiedAccount, spendPkg, err := m.spendAccount(
 		ctx, account, inputs, outputs, witnessType, modifiers, false,
 		bestHeight,
 	)
+
 	if err != nil {
 		releaseInputs()
 		return nil, nil, err
@@ -1215,6 +1223,7 @@ func (m *Manager) spendAccount(ctx context.Context, account *Account,
 		spendPkg *spendPackage
 		err      error
 	)
+
 	switch witnessType {
 	case expiryWitness:
 		// TODO(wilmer): Support modifications through the expiry path.
@@ -1249,6 +1258,7 @@ func (m *Manager) spendAccount(ctx context.Context, account *Account,
 		if err != nil {
 			return nil, nil, err
 		}
+
 		idx, ok := poolscript.LocateOutputScript(
 			spendPkg.tx, newAccountOutput.PkScript,
 		)
@@ -1257,6 +1267,7 @@ func (m *Manager) spendAccount(ctx context.Context, account *Account,
 				"script %x not found in spending transaction",
 				newAccountOutput.PkScript)
 		}
+
 		modifiers = append(modifiers, OutPointModifier(wire.OutPoint{
 			Hash:  spendPkg.tx.TxHash(),
 			Index: idx,
@@ -1272,6 +1283,7 @@ func (m *Manager) spendAccount(ctx context.Context, account *Account,
 		if err != nil {
 			return nil, nil, err
 		}
+
 		spendPkg.tx.TxIn[spendPkg.accountInputIdx].Witness = witness
 	}
 
@@ -1571,7 +1583,8 @@ func valueAfterWithdrawal(accountBeforeWithdrawl *Account,
 // as well.
 func (m *Manager) inputsForDeposit(ctx context.Context,
 	depositAmount btcutil.Amount, witnessType witnessType,
-	feeRate chainfee.SatPerKWeight) ([]chanfunding.Coin, func(),
+	feeRate chainfee.SatPerKWeight, allowUnconfirmed bool,
+	lndWalletAddress []byte) ([]chanfunding.Coin, func(),
 	*wire.TxOut, error) {
 
 	// We'll start by obtaining our global lock ID.
@@ -1597,12 +1610,18 @@ func (m *Manager) inputsForDeposit(ctx context.Context,
 		}
 	}
 
+	var minConfs int32 = 1
+	// allow spending unconfirmed transactions from the LND wallet
+	if allowUnconfirmed {
+		minConfs = 0
+	}
 coinSelection:
 	for {
-		utxos, err := m.cfg.Wallet.ListUnspent(ctx, 1, math.MaxInt32)
+		utxos, err := m.cfg.Wallet.ListUnspent(ctx, minConfs, math.MaxInt32)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
 		coins := make([]chanfunding.Coin, 0, len(utxos))
 		for _, utxo := range utxos {
 			coins = append(coins, chanfunding.Coin{
@@ -1615,7 +1634,8 @@ coinSelection:
 		}
 
 		inputs, changeAmt, err = coinSelection(
-			coins, depositAmount, witnessType, feeRate,
+			coins, depositAmount, witnessType,
+			feeRate, lndWalletAddress,
 		)
 		if err != nil {
 			return nil, nil, nil, err
@@ -1629,6 +1649,7 @@ coinSelection:
 			_, err := m.cfg.Wallet.LeaseOutput(
 				ctx, lockID, input.OutPoint,
 			)
+
 			if err != nil {
 				log.Debugf("Unable to lease output %v: %v",
 					input.OutPoint, err)
@@ -1649,17 +1670,20 @@ coinSelection:
 	dustLimit := txrules.GetDustThreshold(
 		input.P2WPKHSize, txrules.DefaultRelayFeePerKb,
 	)
+
 	if changeAmt >= dustLimit {
 		addr, err := m.cfg.Wallet.NextAddr(context.Background())
 		if err != nil {
 			releaseInputs()
 			return nil, nil, nil, err
 		}
+
 		script, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			releaseInputs()
 			return nil, nil, nil, err
 		}
+
 		changeOutput = &wire.TxOut{
 			Value:    int64(changeAmt),
 			PkScript: script,
@@ -1684,6 +1708,7 @@ func createNewAccountOutput(account *Account, newAccountValue btcutil.Amount) (
 		Value:    int64(newAccountValue),
 		PkScript: newPkScript,
 	}
+
 	modifiers := []Modifier{
 		ValueModifier(newAccountValue),
 		IncrementBatchKey(),

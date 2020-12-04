@@ -1,7 +1,9 @@
 package account
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/btcsuite/btcd/chaincfg"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
@@ -15,14 +17,29 @@ import (
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
-func selectInputs(amt btcutil.Amount, coins []chanfunding.Coin) (btcutil.Amount,
-	[]chanfunding.Coin, error) {
+func selectInputs(amt btcutil.Amount, coins []chanfunding.Coin,
+	lndUtxoAddress []byte) (btcutil.Amount, []chanfunding.Coin, error) {
+
+	var selectedCoins []chanfunding.Coin
 
 	satSelected := btcutil.Amount(0)
-	for i, coin := range coins {
+	for _, coin := range coins {
+		if lndUtxoAddress != nil {
+			decodedPkScriptAddress, err := decodePkScriptToAddress(coin.PkScript)
+			if err != nil {
+				// TODO: do something with this error
+				continue
+			}
+
+			if !bytes.Equal(decodedPkScriptAddress, lndUtxoAddress) {
+				continue
+			}
+		}
 		satSelected += btcutil.Amount(coin.Value)
+		selectedCoins = append(selectedCoins, coin)
+
 		if satSelected >= amt {
-			return satSelected, coins[:i+1], nil
+			return satSelected, selectedCoins, nil
 		}
 	}
 
@@ -38,14 +55,14 @@ func selectInputs(amt btcutil.Amount, coins []chanfunding.Coin) (btcutil.Amount,
 // TODO(wilmer): Replace this with a variant in lnd that allows us to specify
 // the base inputs and outputs, rather than assuming we're funding a channel.
 func coinSelection(coins []chanfunding.Coin, amt btcutil.Amount,
-	witnessType witnessType, feeRate chainfee.SatPerKWeight) (
+	witnessType witnessType, feeRate chainfee.SatPerKWeight, lndUtxoAddress []byte) (
 	[]chanfunding.Coin, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
 		// First perform an initial round of coin selection to estimate
 		// the required fee.
-		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
+		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins, lndUtxoAddress)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -99,4 +116,17 @@ func coinSelection(coins []chanfunding.Coin, amt btcutil.Amount,
 
 		return selectedUtxos, changeAmt, nil
 	}
+}
+
+func decodePkScriptToAddress(pkScript []byte) ([]byte, error) {
+	_, addresses, _, err := txscript.ExtractPkScriptAddrs(pkScript, &chaincfg.MainNetParams)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode public key script: %v", err)
+	}
+
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("no addresses decoded from pkScript %x", pkScript)
+	}
+
+	return addresses[0].ScriptAddress(), nil
 }

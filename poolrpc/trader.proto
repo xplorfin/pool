@@ -374,7 +374,7 @@ message DepositAccountRequest {
     If true, allows DepositAccount() to use unconfirmed UTXOs from LND
     to acquire funds.
      */
-    boolean allow_unconfirmed = 5;
+    bool allow_unconfirmed = 5;
 }
 message DepositAccountResponse {
     // The state of the account after processing the deposit.

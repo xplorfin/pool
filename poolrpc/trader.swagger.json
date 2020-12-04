@@ -940,6 +940,16 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate, in satoshis per kw, to use for the deposit transaction."
+        },
+        "lnd_utxo_address": {
+          "type": "string",
+          "format": "byte",
+          "description": "A specific address on LND which has UTXOs to withdraw funds from.\nIf specified, DepositAccount() will only use funds which were sent\nto the specified address. If not specified (default behavior),\nDepositAccount() will use any available UTXOs for funding."
+        },
+        "allow_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If true, allows DepositAccount() to use unconfirmed UTXOs from LND\nto acquire funds."
         }
       }
     },

@@ -361,6 +361,20 @@ message DepositAccountRequest {
     The fee rate, in satoshis per kw, to use for the deposit transaction.
     */
     uint64 fee_rate_sat_per_kw = 3;
+
+    /*
+    A specific address on LND which has UTXOs to withdraw funds from.
+    If specified, DepositAccount() will only use funds which were sent
+    to the specified address. If not specified (default behavior),
+    DepositAccount() will use any available UTXOs for funding.
+     */
+    bytes lnd_utxo_address = 4;
+
+    /*
+    If true, allows DepositAccount() to use unconfirmed UTXOs from LND
+    to acquire funds.
+     */
+    boolean allow_unconfirmed = 5;
 }
 message DepositAccountResponse {
     // The state of the account after processing the deposit.

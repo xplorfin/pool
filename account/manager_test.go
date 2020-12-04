@@ -1050,7 +1050,7 @@ func TestAccountDepositSpecifyLndWalletAddress(t *testing.T) {
 		t.Log(err)
 	}
 
-	desiredAddr := addrs[0].ScriptAddress()
+	desiredAddr := addrs[0].String()
 
 	// We'll provide four outputs to the mock wallet
 	// which will be consumed by the deposit;

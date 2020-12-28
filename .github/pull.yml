@@ -1,0 +1,10 @@
+version: "1"
+rules:
+  - base: master
+    upstream: lightninglabs:master
+    mergeMethod: hardreset
+    mergeUnstable: false
+  - base: entropy
+    upstream: lightninglabs:master
+    mergeMethod: rebase
+    mergeUnstable: false

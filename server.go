@@ -5,17 +5,18 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/credentials"
+	"gopkg.in/macaroon.v2"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/aperture/lsat"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/pool/auctioneer"
 	"github.com/lightninglabs/pool/clientdb"
 	"github.com/lightninglabs/pool/funding"
@@ -25,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/xplorfin/lndclient"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -52,7 +54,7 @@ var (
 // Server is the main poold trader server.
 type Server struct {
 	// To be used atomically.
-	started int32
+	started *int32
 
 	*rpcServer
 
@@ -66,44 +68,58 @@ type Server struct {
 	// client or an error if none has been established yet.
 	GetIdentity func() (*lsat.TokenID, error)
 
-	cfg             *Config
-	db              *clientdb.DB
-	fundingManager  *funding.Manager
-	lsatStore       *lsat.FileStore
-	lndServices     *lndclient.GrpcLndServices
-	lndClient       lnrpc.LightningClient
-	grpcServer      *grpc.Server
-	restProxy       *http.Server
+	cfg                   *Config
+	tlsCfg                *tls.Config
+	db                    *clientdb.DB
+	fundingManager        *funding.Manager
+	lsatStore             *lsat.FileStore
+	lndServices           *lndclient.GrpcLndServices
+	lndClient             lnrpc.LightningClient
+	grpcServer            *grpc.Server
+	restProxy             *http.Server
+	restProxyDest         string
+	restClientCredentials credentials.TransportCredentials
+
+	getRpcListener  tcpListener
+	getRestListener tcpListener
 	grpcListener    net.Listener
 	restListener    net.Listener
 	restCancel      func()
 	macaroonService *macaroons.Service
 	wg              sync.WaitGroup
+	mux             *proxy.ServeMux
+
+	// Depending on how far we got in initializing the server, we might need
+	// to clean up certain services that were already started. Keep track of
+	// them with this map of service name to shutdown function.
+	shutdownFuncs map[string]func() error
 }
 
 // NewServer creates a new trader server.
-func NewServer(cfg *Config) *Server {
+func NewServer(cfg *Config, tlsCfg *tls.Config, restProxyDest string,
+	restClientCredentials credentials.TransportCredentials,
+	getRpcListener, getRestListener tcpListener) *Server {
+
 	return &Server{
-		cfg: cfg,
+		cfg:                   cfg,
+		tlsCfg:                tlsCfg,
+		getRpcListener:        getRpcListener,
+		getRestListener:       getRestListener,
+		restProxyDest:         restProxyDest,
+		restClientCredentials: restClientCredentials,
+		shutdownFuncs:         make(map[string]func() error),
 	}
 }
 
 // Start runs poold in daemon mode. It will listen for grpc connections, execute
 // commands and pass back auction status information.
 func (s *Server) Start() error {
-	if atomic.AddInt32(&s.started, 1) != 1 {
-		return fmt.Errorf("trader can only be started once")
+	if atomic.AddInt32(s.started, 1) != 1 {
+		return fmt.Errorf("server can only be started once")
 	}
 
-	// Print the version before executing either primary directive.
-	log.Infof("Version: %v", Version())
-
-	// Depending on how far we got in initializing the server, we might need
-	// to clean up certain services that were already started. Keep track of
-	// them with this map of service name to shutdown function.
-	shutdownFuncs := make(map[string]func() error)
 	defer func() {
-		for serviceName, shutdownFn := range shutdownFuncs {
+		for serviceName, shutdownFn := range s.shutdownFuncs {
 			if err := shutdownFn(); err != nil {
 				log.Errorf("Error shutting down %s service: %v",
 					serviceName, err)
@@ -111,51 +127,13 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	var err error
-	s.lndServices, err = getLnd(s.cfg.Network, s.cfg.Lnd)
-	if err != nil {
-		return err
-	}
-	shutdownFuncs["lnd"] = func() error { // nolint:unparam
-		s.lndServices.Close()
-		return nil
-	}
-
-	// As there're some other lower-level operations we may need access to,
-	// we'll also make a connection for a "basic client".
-	//
-	// TODO(roasbeef): more granular macaroons, can ask user to make just
-	// what we need
-	s.lndClient, err = lndclient.NewBasicClient(
-		s.cfg.Lnd.Host, s.cfg.Lnd.TLSPath, s.cfg.Lnd.MacaroonDir,
-		s.cfg.Network,
-	)
-	if err != nil {
-		return err
-	}
-
-	// Start the macaroon service and let it create its default macaroon in
-	// case it doesn't exist yet.
-	if err := s.startMacaroonService(); err != nil {
-		return err
-	}
-	shutdownFuncs["macaroon"] = s.stopMacaroonService
-
-	// Setup the auctioneer client and interceptor.
-	err = s.setupClient()
-	if err != nil {
-		return err
-	}
-	shutdownFuncs["clientdb"] = s.db.Close
-	shutdownFuncs["auctioneer"] = s.AuctioneerClient.Stop
-
 	// Instantiate the trader gRPC server and start it.
 	s.rpcServer = newRPCServer(s)
-	err = s.rpcServer.Start()
+	err := s.rpcServer.Start()
 	if err != nil {
 		return err
 	}
-	shutdownFuncs["rpcServer"] = s.rpcServer.Stop
+	s.shutdownFuncs["rpcServer"] = s.rpcServer.Stop
 
 	// Let's create our interceptor chain, starting with the security
 	// interceptors that will check macaroons for their validity.
@@ -170,16 +148,17 @@ func (s *Server) Start() error {
 			unaryMacIntercept,
 		),
 	}
-	s.grpcServer = grpc.NewServer(serverOpts...)
-	poolrpc.RegisterTraderServer(s.grpcServer, s.rpcServer)
 
-	// We'll need to start the server with TLS and connect the REST proxy
-	// client to it.
-	serverTLSCfg, restClientCreds, err := getTLSConfig(s.cfg)
-	if err != nil {
-		return fmt.Errorf("could not create gRPC server options: %v",
-			err)
+	var restCtx context.Context
+
+	proxyOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(s.restClientCredentials),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+		),
 	}
+
+	s.grpcServer = grpc.NewServer(serverOpts...)
 
 	// Next, start the gRPC server listening for HTTP/2 connections.
 	// If the provided grpcListener is not nil, it means poold is being
@@ -187,55 +166,48 @@ func (s *Server) Start() error {
 	// connection (but maybe a UNIX socket or bufconn). So we don't spin up
 	// a REST listener in that case.
 	log.Infof("Starting gRPC listener")
+
 	s.grpcListener = s.cfg.RPCListener
 	if s.grpcListener == nil {
-		s.grpcListener, err = net.Listen("tcp", s.cfg.RPCListen)
+		grpcListener, _, err := s.getRpcListener()
 		if err != nil {
 			return fmt.Errorf("RPC server unable to listen on %s",
 				s.cfg.RPCListen)
 		}
 
+		s.grpcListener = grpcListener
+
 		// We'll also create and start an accompanying proxy to serve
 		// clients through REST.
-		var ctx context.Context
-		ctx, s.restCancel = context.WithCancel(context.Background())
-		mux := proxy.NewServeMux()
-		proxyOpts := []grpc.DialOption{
-			grpc.WithTransportCredentials(*restClientCreds),
-		}
+
+		restCtx, s.restCancel = context.WithCancel(context.Background())
+		s.mux = proxy.NewServeMux()
 
 		// With TLS enabled by default, we cannot call 0.0.0.0
 		// internally from the REST proxy as that IP address isn't in
 		// the cert. We need to rewrite it to the loopback address.
 		restProxyDest := s.cfg.RPCListen
-		switch {
-		case strings.Contains(restProxyDest, "0.0.0.0"):
-			restProxyDest = strings.Replace(
-				restProxyDest, "0.0.0.0", "127.0.0.1", 1,
-			)
-
-		case strings.Contains(restProxyDest, "[::]"):
-			restProxyDest = strings.Replace(
-				restProxyDest, "[::]", "[::1]", 1,
-			)
-		}
 		err = poolrpc.RegisterTraderHandlerFromEndpoint(
-			ctx, mux, restProxyDest, proxyOpts,
+			restCtx, s.mux, restProxyDest, proxyOpts,
 		)
 		if err != nil {
 			return err
 		}
 
 		log.Infof("Starting REST proxy listener")
-		s.restListener, err = net.Listen("tcp", s.cfg.RESTListen)
+		restListener, restCleanup, err := s.getRestListener()
 		if err != nil {
 			return fmt.Errorf("REST proxy unable to listen on %s",
 				s.cfg.RESTListen)
 		}
-		s.restListener = tls.NewListener(s.restListener, serverTLSCfg)
-		shutdownFuncs["restListener"] = s.restListener.Close
+		s.restListener = tls.NewListener(restListener, s.tlsCfg)
+		s.shutdownFuncs["restListener"] = func() error {
+			restCleanup()
 
-		s.restProxy = &http.Server{Handler: mux}
+			return nil
+		}
+
+		s.restProxy = &http.Server{Handler: s.mux}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -247,8 +219,8 @@ func (s *Server) Start() error {
 			}
 		}()
 	}
-	s.grpcListener = tls.NewListener(s.grpcListener, serverTLSCfg)
-	shutdownFuncs["rpcListener"] = s.grpcListener.Close
+	s.grpcListener = tls.NewListener(s.grpcListener, s.tlsCfg)
+	s.shutdownFuncs["rpcListener"] = s.grpcListener.Close
 
 	// Start the grpc server.
 	s.wg.Add(1)
@@ -267,6 +239,52 @@ func (s *Server) Start() error {
 		}
 	}()
 
+	if err := s.StartTraderRpc(restCtx, proxyOpts); err != nil {
+		return fmt.Errorf("error starting trader rpc: %v", err)
+	}
+
+	// Print the version before executing either primary directive.
+	log.Infof("Version: %v", Version())
+
+	return nil
+}
+
+func (s *Server) StartTraderRpc(ctx context.Context,
+	proxyOpts []grpc.DialOption) error {
+	if atomic.AddInt32(s.started, 1) != 1 {
+		return fmt.Errorf("trader can only be started once")
+	}
+
+	var err error
+	s.lndServices, err = getLnd(s.cfg.Network, s.cfg.Lnd)
+	if err != nil {
+		return err
+	}
+	s.shutdownFuncs["lnd"] = func() error { // nolint:unparam
+		s.lndServices.Close()
+		return nil
+	}
+
+	// As there're some other lower-level operations we may need access to,
+	// we'll also make a connection for a "basic client".
+	grpcConn, err := s.getBasicLndClient(proxyOpts)
+	if err != nil {
+		return err
+	}
+
+	s.lndClient = lnrpc.NewLightningClient(grpcConn)
+
+	// Setup the auctioneer client and interceptor.
+	err = s.setupClient()
+	if err != nil {
+		return err
+	}
+
+	s.shutdownFuncs["clientdb"] = s.db.Close
+	s.shutdownFuncs["auctioneer"] = s.AuctioneerClient.Stop
+
+	poolrpc.RegisterTraderServer(s.grpcServer, s.rpcServer)
+
 	// The final thing we'll do on start up is sync the order state of the
 	// auctioneer with what we have on disk.
 	err = s.syncLocalOrderState()
@@ -276,9 +294,32 @@ func (s *Server) Start() error {
 
 	// If we got here successfully, there's no need to shutdown anything
 	// anymore.
-	shutdownFuncs = nil
+	s.shutdownFuncs = nil
 
 	return nil
+}
+
+func (s *Server) getBasicLndClient(dialOpts []grpc.DialOption) (*grpc.ClientConn, error) {
+	mac := &macaroon.Macaroon{}
+
+	rawMacBytes, err := base64.StdEncoding.DecodeString(s.cfg.Lnd.RawMacaroon)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mac.UnmarshalBinary(rawMacBytes); err != nil {
+		return nil, err
+	}
+
+	macCreds := macaroons.NewMacaroonCredential(mac)
+	dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(macCreds))
+
+	conn, err := grpc.DialContext(context.Background(), s.cfg.Lnd.Host, dialOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to rpc server: %[1]v", err)
+	}
+
+	return conn, nil
 }
 
 // StartAsSubserver is an alternative start method where the RPC server does not
@@ -286,7 +327,7 @@ func (s *Server) Start() error {
 func (s *Server) StartAsSubserver(lndClient lnrpc.LightningClient,
 	lndGrpc *lndclient.GrpcLndServices) error {
 
-	if atomic.AddInt32(&s.started, 1) != 1 {
+	if atomic.AddInt32(s.started, 1) != 1 {
 		return fmt.Errorf("trader can only be started once")
 	}
 
@@ -311,9 +352,9 @@ func (s *Server) StartAsSubserver(lndClient lnrpc.LightningClient,
 
 	// Start the macaroon service and let it create its default macaroon in
 	// case it doesn't exist yet.
-	if err := s.startMacaroonService(); err != nil {
-		return err
-	}
+	//if err := s.startMacaroonService(); err != nil {
+	//	return err
+	//}
 	shutdownFuncs["macaroon"] = s.stopMacaroonService
 
 	// Setup the auctioneer client and interceptor.
@@ -515,6 +556,7 @@ func (s *Server) Stop() error {
 	if shutdownErr != nil {
 		return fmt.Errorf("error shutting down server: %v", shutdownErr)
 	}
+
 	return nil
 }
 
@@ -541,15 +583,36 @@ func getLnd(network string, cfg *LndConfig) (*lndclient.GrpcLndServices, error) 
 		}
 	}()
 
-	return lndclient.NewLndServices(&lndclient.LndServicesConfig{
+	lndConfig := &lndclient.LndServicesConfig{
 		LndAddress:            cfg.Host,
 		Network:               lndclient.Network(network),
-		MacaroonDir:           cfg.MacaroonDir,
-		TLSPath:               cfg.TLSPath,
 		CheckVersion:          minimalCompatibleVersion,
 		BlockUntilChainSynced: true,
 		ChainSyncCtx:          ctxc,
-	})
+	}
+
+	if cfg.RawMacaroon != "" {
+		rawMac, err := base64.StdEncoding.DecodeString(cfg.RawMacaroon)
+		if err != nil {
+			return nil, err
+		}
+		lndConfig.CustomMacaroon = rawMac
+	} else {
+		lndConfig.MacaroonDir = cfg.MacaroonDir
+	}
+
+	if cfg.RawTLSCert != "" {
+		decoded, err := base64.StdEncoding.DecodeString(cfg.RawTLSCert)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding raw lnd tls cert: %v", err)
+		}
+
+		lndConfig.RawTLS = decoded
+	} else {
+		lndConfig.TLSPath = cfg.TLSPath
+	}
+
+	return lndclient.NewLndServices(lndConfig)
 }
 
 // Interceptor is the interface a client side gRPC interceptor has to implement.

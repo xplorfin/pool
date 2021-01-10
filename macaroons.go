@@ -140,47 +140,71 @@ var (
 // unlocks the macaroon database and creates the default macaroon if it doesn't
 // exist yet. If macaroons are disabled in general in the configuration, none of
 // these actions are taken.
-func (s *Server) startMacaroonService() error {
+// If statelessInit is true, returns the raw byte data of the generated
+// macaroon and does not write it to disk. Otherwise, the raw macaroon data
+// is not returned, and the macaroon is written to disk.
+func (s *Server) startMacaroonService(statelessInit bool) ([]byte, error) {
+	var (
+		err          error
+		poolMacBytes []byte
+	)
+
 	// Create the macaroon authentication/authorization service.
-	var err error
 	s.macaroonService, err = macaroons.NewService(
 		s.cfg.BaseDir, poolMacaroonLocation, macaroons.IPLockChecker,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to set up macaroon authentication: "+
+		return nil, fmt.Errorf("unable to set up macaroon authentication: "+
 			"%v", err)
 	}
 
 	// Try to unlock the macaroon store with the private password.
 	err = s.macaroonService.CreateUnlock(&macDbDefaultPw)
 	if err != nil {
-		return fmt.Errorf("unable to unlock macaroon DB: %v", err)
+		return nil, fmt.Errorf("unable to unlock macaroon DB: %v", err)
 	}
 
-	// Create macaroon files for pool CLI to use if they don't exist.
-	if !lnrpc.FileExists(s.cfg.MacaroonPath) {
-		ctx := context.Background()
+	poolMacBytes, err = s.bakeMacaroon()
+	if err != nil {
+		return nil, fmt.Errorf("unable to bake macaroon: %v", err)
+	}
 
-		// We only generate one default macaroon that contains all
-		// existing permissions (equivalent to the admin.macaroon in
-		// lnd). Custom macaroons can be created through the bakery
-		// RPC.
-		poolMac, err := s.macaroonService.Oven.NewMacaroon(
-			ctx, bakery.LatestVersion, nil, allPermissions...,
-		)
+	if statelessInit {
+		return poolMacBytes, nil
+	}
+
+	return poolMacBytes, writeMacaroon(s.cfg.MacaroonPath, poolMacBytes)
+}
+
+// Bakes a macaroon.
+// Yum.
+func (s *Server) bakeMacaroon() ([]byte, error) {
+	ctx := context.Background()
+
+	// We only generate one default macaroon that contains all
+	// existing permissions (equivalent to the admin.macaroon in
+	// lnd). Custom macaroons can be created through the bakery
+	// RPC.
+	poolMac, err := s.macaroonService.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, allPermissions...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return poolMac.M().MarshalBinary()
+}
+
+// Create macaroon files for pool CLI to use if they don't exist.
+func writeMacaroon(macaroonPath string, poolMacBytes []byte) error {
+	if !lnrpc.FileExists(macaroonPath) {
+		err := ioutil.WriteFile(macaroonPath, poolMacBytes, 0644)
 		if err != nil {
-			return err
-		}
-		poolMacBytes, err := poolMac.M().MarshalBinary()
-		if err != nil {
-			return err
-		}
-		err = ioutil.WriteFile(s.cfg.MacaroonPath, poolMacBytes, 0644)
-		if err != nil {
-			if err := os.Remove(s.cfg.MacaroonPath); err != nil {
+			if err := os.Remove(macaroonPath); err != nil {
 				log.Errorf("Unable to remove %s: %v",
-					s.cfg.MacaroonPath, err)
+					macaroonPath, err)
 			}
+
 			return err
 		}
 	}

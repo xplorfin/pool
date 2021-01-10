@@ -101,7 +101,7 @@ func start() error {
 			os.Exit(0)
 		}
 
-		return pool.Run(&config)
+		return pool.Main(&config)
 	}
 
 	return fmt.Errorf("unimplemented command %v", parser.Active.Name)

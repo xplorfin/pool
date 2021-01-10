@@ -78,6 +78,8 @@ type LndConfig struct {
 	Host        string `long:"host" description:"lnd instance rpc address"`
 	MacaroonDir string `long:"macaroondir" description:"Path to the directory containing all the required lnd macaroons"`
 	TLSPath     string `long:"tlspath" description:"Path to lnd tls certificate"`
+	RawMacaroon string `long:"rawmacaroon" description:"Base64 encoded lnd admin macaroon"`
+	RawTLSCert  string `long:"rawtlscert" description:"Base64 encoded lnd tls cert"`
 }
 
 type Config struct {
@@ -115,6 +117,8 @@ type Config struct {
 	TxLabelPrefix string `long:"txlabelprefix" description:"If set, then every transaction poold makes will be created with a label that has this string as a prefix."`
 
 	Lnd *LndConfig `group:"lnd" namespace:"lnd"`
+
+	StatelessInit bool `long:"statelessinit" description:"If true, does not start the poold service immediately and instead waits for an RPC call to initialize it."`
 
 	// RPCListener is a network listener that can be set if poold should be
 	// used as a library and listen on the given listener instead of what is
@@ -158,6 +162,7 @@ func DefaultConfig() Config {
 		Lnd: &LndConfig{
 			Host: "localhost:10009",
 		},
+		StatelessInit: false,
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/aperture/lsat"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/pool/auctioneer"
 	"github.com/lightninglabs/pool/clientdb"
 	"github.com/lightninglabs/pool/funding"
@@ -26,7 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/xplorfin/lndclient"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -54,7 +54,7 @@ var (
 // Server is the main poold trader server.
 type Server struct {
 	// To be used atomically.
-	started *int32
+	started int32
 
 	*rpcServer
 
@@ -114,7 +114,7 @@ func NewServer(cfg *Config, tlsCfg *tls.Config, restProxyDest string,
 // Start runs poold in daemon mode. It will listen for grpc connections, execute
 // commands and pass back auction status information.
 func (s *Server) Start() error {
-	if atomic.AddInt32(s.started, 1) != 1 {
+	if atomic.AddInt32(&s.started, 1) != 1 {
 		return fmt.Errorf("server can only be started once")
 	}
 
@@ -127,12 +127,52 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	// Instantiate the trader gRPC server and start it.
-	s.rpcServer = newRPCServer(s)
-	err := s.rpcServer.Start()
+	var restCtx context.Context
+
+	proxyOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(s.restClientCredentials),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+		),
+	}
+
+	var lndErr error
+	s.lndServices, lndErr = getLnd(s.cfg.Network, s.cfg.Lnd)
+	if lndErr != nil {
+		return lndErr
+	}
+
+	s.shutdownFuncs["lnd"] = func() error { // nolint:unparam
+		s.lndServices.Close()
+		return nil
+	}
+
+	// As there're some other lower-level operations we may need access to,
+	// we'll also make a connection for a "basic client".
+	grpcConn, err := s.getBasicLndClient(proxyOpts)
 	if err != nil {
 		return err
 	}
+
+	s.lndClient = lnrpc.NewLightningClient(grpcConn)
+
+	// Setup the auctioneer client and interceptor.
+	err = s.setupClient()
+	if err != nil {
+		return err
+	}
+
+	s.shutdownFuncs["clientdb"] = s.db.Close
+	s.shutdownFuncs["auctioneer"] = s.AuctioneerClient.Stop
+
+	poolrpc.RegisterTraderServer(s.grpcServer, s.rpcServer)
+
+	// Instantiate the trader gRPC server and start it.
+	s.rpcServer = newRPCServer(s)
+	if startErr := s.rpcServer.Start(); startErr != nil {
+		return err
+	}
+
 	s.shutdownFuncs["rpcServer"] = s.rpcServer.Stop
 
 	// Let's create our interceptor chain, starting with the security
@@ -146,15 +186,6 @@ func (s *Server) Start() error {
 		grpc.ChainUnaryInterceptor(
 			errorLogUnaryServerInterceptor(rpcLog),
 			unaryMacIntercept,
-		),
-	}
-
-	var restCtx context.Context
-
-	proxyOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(s.restClientCredentials),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
 		),
 	}
 
@@ -239,52 +270,6 @@ func (s *Server) Start() error {
 		}
 	}()
 
-	if err := s.StartTraderRpc(restCtx, proxyOpts); err != nil {
-		return fmt.Errorf("error starting trader rpc: %v", err)
-	}
-
-	// Print the version before executing either primary directive.
-	log.Infof("Version: %v", Version())
-
-	return nil
-}
-
-func (s *Server) StartTraderRpc(ctx context.Context,
-	proxyOpts []grpc.DialOption) error {
-	if atomic.AddInt32(s.started, 1) != 1 {
-		return fmt.Errorf("trader can only be started once")
-	}
-
-	var err error
-	s.lndServices, err = getLnd(s.cfg.Network, s.cfg.Lnd)
-	if err != nil {
-		return err
-	}
-	s.shutdownFuncs["lnd"] = func() error { // nolint:unparam
-		s.lndServices.Close()
-		return nil
-	}
-
-	// As there're some other lower-level operations we may need access to,
-	// we'll also make a connection for a "basic client".
-	grpcConn, err := s.getBasicLndClient(proxyOpts)
-	if err != nil {
-		return err
-	}
-
-	s.lndClient = lnrpc.NewLightningClient(grpcConn)
-
-	// Setup the auctioneer client and interceptor.
-	err = s.setupClient()
-	if err != nil {
-		return err
-	}
-
-	s.shutdownFuncs["clientdb"] = s.db.Close
-	s.shutdownFuncs["auctioneer"] = s.AuctioneerClient.Stop
-
-	poolrpc.RegisterTraderServer(s.grpcServer, s.rpcServer)
-
 	// The final thing we'll do on start up is sync the order state of the
 	// auctioneer with what we have on disk.
 	err = s.syncLocalOrderState()
@@ -292,9 +277,10 @@ func (s *Server) StartTraderRpc(ctx context.Context,
 		return err
 	}
 
-	// If we got here successfully, there's no need to shutdown anything
-	// anymore.
 	s.shutdownFuncs = nil
+
+	// Print the version before executing either primary directive.
+	log.Infof("Version: %v", Version())
 
 	return nil
 }
@@ -327,7 +313,7 @@ func (s *Server) getBasicLndClient(dialOpts []grpc.DialOption) (*grpc.ClientConn
 func (s *Server) StartAsSubserver(lndClient lnrpc.LightningClient,
 	lndGrpc *lndclient.GrpcLndServices) error {
 
-	if atomic.AddInt32(s.started, 1) != 1 {
+	if atomic.AddInt32(&s.started, 1) != 1 {
 		return fmt.Errorf("trader can only be started once")
 	}
 

@@ -249,6 +249,14 @@ func Main(cfg *Config) error {
 
 	var initializerParams *InitializerParams
 
+	traderServer := NewServer(cfg, serverTLSCfg, restProxyDest, *restClientCreds, getRpcListener, getRestListener)
+
+	poolMacBytes, err := traderServer.startMacaroonService(cfg.StatelessInit)
+	if err != nil {
+		return err
+	}
+	traderServer.shutdownFuncs["macaroon"] = traderServer.stopMacaroonService
+
 	if cfg.StatelessInit {
 		params, shutdown, initializerErr := waitForServiceInit(
 			serverOpts, restDialOpts, getInitializerListener,
@@ -262,6 +270,8 @@ func Main(cfg *Config) error {
 		lndAuthDetails = params.LndAuthDetails
 		initializerParams = params
 
+		initializerParams.MacResponseChan <- poolMacBytes
+
 		shutdown()
 
 		cfg.Lnd = &LndConfig{
@@ -269,18 +279,6 @@ func Main(cfg *Config) error {
 			RawMacaroon: lndAuthDetails.AdminMacaroon,
 			RawTLSCert:  lndAuthDetails.TlsCert,
 		}
-	}
-
-	traderServer := NewServer(cfg, serverTLSCfg, restProxyDest, *restClientCreds, getRpcListener, getRestListener)
-
-	poolMacBytes, err := traderServer.startMacaroonService(cfg.StatelessInit)
-	if err != nil {
-		return err
-	}
-	traderServer.shutdownFuncs["macaroon"] = traderServer.stopMacaroonService
-
-	if initializerParams != nil && cfg.StatelessInit {
-		initializerParams.MacResponseChan <- poolMacBytes
 	}
 
 	err = traderServer.Start()

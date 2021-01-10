@@ -42,7 +42,7 @@ type PooldInitializerService struct {
 	InitResponses   chan *PooldInitializerResponse
 	MacResponseChan chan []byte
 	// Must be used atomically.
-	ServiceInitialized *int32
+	ServiceInitialized int32
 }
 
 func New() *PooldInitializerService {
@@ -56,11 +56,34 @@ func New() *PooldInitializerService {
 func (ps *PooldInitializerService) InitializeService(ctx context.Context,
 	in *poolrpc.InitializeRequest) (*poolrpc.InitializeResponse, error) {
 
-	if atomic.AddInt32(ps.ServiceInitialized, 1) != 1 {
+	if atomic.AddInt32(&ps.ServiceInitialized, 1) != 1 {
 		return nil, fmt.Errorf("poold service already initialized")
 	}
 
-	return nil, nil
+	initResponse := &PooldInitializerResponse{
+		StatelessInit: in.StatelessInit,
+		LndAuthDetails: &LndAuthDetails{
+			Host:          in.LndAuthDetails.Host,
+			Port:          int64(in.LndAuthDetails.Port),
+			AdminMacaroon: in.LndAuthDetails.AdminMacaroon,
+			TlsCert:       in.LndAuthDetails.TlsCert,
+		},
+	}
+
+	select {
+	case ps.InitResponses <- initResponse:
+		select {
+		case poolMac := <-ps.MacResponseChan:
+			return &poolrpc.InitializeResponse{
+				InitSucceeded: true,
+				PooldMacaroon: poolMac,
+			}, nil
+		case <-ctx.Done():
+			return nil, ErrInitTimeout
+		}
+	case <-ctx.Done():
+		return nil, ErrInitTimeout
+	}
 }
 
 func validateLndAuthDetails(in *poolrpc.LndAuthDetails) error {

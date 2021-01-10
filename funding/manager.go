@@ -659,7 +659,7 @@ func (m *Manager) connectToMatchedTrader(ctx context.Context,
 	nodeKey [33]byte, addrs []net.Addr) {
 
 	for _, addr := range addrs {
-		err := m.LightningClient.Connect(ctx, nodeKey, addr.String())
+		err := m.LightningClient.Connect(ctx, nodeKey, addr.String(), true)
 		if err != nil {
 			// If we're already connected, then we can stop now.
 			if strings.Contains(err.Error(), "already connected") {

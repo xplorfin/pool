@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -1944,6 +1945,25 @@ func (s *rpcServer) NodeRatings(ctx context.Context,
 	}
 
 	return s.auctioneer.NodeRating(ctx, pubKeys...)
+}
+
+func (s *rpcServer) TlsCertificate(_ context.Context,
+	_ *poolrpc.TlsCertificateRequest) (*poolrpc.TlsCertificateResponse, error) {
+
+	response := &poolrpc.TlsCertificateResponse{}
+
+	if !lnrpc.FileExists(s.server.cfg.TLSCertPath) {
+		return nil, errors.New("tls certificate somehow doesn't exist")
+	}
+
+	certBytes, err := ioutil.ReadFile(s.server.cfg.TLSCertPath)
+	if err != nil {
+		return nil, err
+	}
+
+	response.Certificate = certBytes
+
+	return response, nil
 }
 
 // rpcOrderStateToDBState maps the order state as received over the RPC

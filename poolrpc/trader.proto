@@ -217,6 +217,13 @@ service Trader {
             get: "/v1/pool/batch/snapshots/{start_batch_id}/{num_batches_back}"
         };
     };
+
+    rpc TlsCertificate (TlsCertificateRequest)
+        returns (TlsCertificateResponse) {
+        option (google.api.http) = {
+            get: "/v1/pool/tls_certificate"
+        };
+    };
 }
 
 message InitAccountRequest {
@@ -236,6 +243,13 @@ message InitAccountRequest {
         // TODO(guggero): Add sat_per_vbyte as soon as lnd has a parameter for
         // that in rpcServer.EstimateFee.
     }
+}
+
+message TlsCertificateRequest {
+}
+
+message TlsCertificateResponse {
+    bytes certificate = 1;
 }
 
 message QuoteAccountRequest {

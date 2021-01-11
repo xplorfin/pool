@@ -669,6 +669,24 @@ func local_request_Trader_BatchSnapshots_0(ctx context.Context, marshaler runtim
 
 }
 
+func request_Trader_TlsCertificate_0(ctx context.Context, marshaler runtime.Marshaler, client TraderClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq TlsCertificateRequest
+	var metadata runtime.ServerMetadata
+
+	msg, err := client.TlsCertificate(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Trader_TlsCertificate_0(ctx context.Context, marshaler runtime.Marshaler, server TraderServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq TlsCertificateRequest
+	var metadata runtime.ServerMetadata
+
+	msg, err := server.TlsCertificate(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
 // RegisterTraderHandlerServer registers the http handlers for service Trader to "mux".
 // UnaryRPC     :call TraderServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -1051,6 +1069,26 @@ func RegisterTraderHandlerServer(ctx context.Context, mux *runtime.ServeMux, ser
 		}
 
 		forward_Trader_BatchSnapshots_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_Trader_TlsCertificate_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Trader_TlsCertificate_0(rctx, inboundMarshaler, server, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Trader_TlsCertificate_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1475,6 +1513,26 @@ func RegisterTraderHandlerClient(ctx context.Context, mux *runtime.ServeMux, cli
 
 	})
 
+	mux.Handle("GET", pattern_Trader_TlsCertificate_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Trader_TlsCertificate_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Trader_TlsCertificate_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -1516,6 +1574,8 @@ var (
 	pattern_Trader_NodeRatings_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "pool", "node_ratings"}, "", runtime.AssumeColonVerbOpt(true)))
 
 	pattern_Trader_BatchSnapshots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "pool", "batch", "snapshots", "start_batch_id", "num_batches_back"}, "", runtime.AssumeColonVerbOpt(true)))
+
+	pattern_Trader_TlsCertificate_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "pool", "tls_certificate"}, "", runtime.AssumeColonVerbOpt(true)))
 )
 
 var (
@@ -1556,4 +1616,6 @@ var (
 	forward_Trader_NodeRatings_0 = runtime.ForwardResponseMessage
 
 	forward_Trader_BatchSnapshots_0 = runtime.ForwardResponseMessage
+
+	forward_Trader_TlsCertificate_0 = runtime.ForwardResponseMessage
 )

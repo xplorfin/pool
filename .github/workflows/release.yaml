@@ -32,12 +32,12 @@ jobs:
         uses: actions/cache@v1
         with:
           path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+          key: pool-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
+            pool-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+            pool-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
+            pool-${{ runner.os }}-go-${{ env.GO_VERSION }}-
+            pool-${{ runner.os }}-go-
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
@@ -56,10 +56,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_VERSION }}
-          name: lnd ${{ env.RELEASE_VERSION }}
+          name: pool ${{ env.RELEASE_VERSION }}
           draft: true
           prerelease: false
-          files: lnd-${{ env.RELEASE_VERSION }}/*
+          files: pool-${{ env.RELEASE_VERSION }}/*
 #          body: |
 #            # Database Migrations
 #            TODO

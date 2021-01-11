@@ -682,6 +682,28 @@
           "Trader"
         ]
       }
+    },
+    "/v1/pool/tls_certificate": {
+      "get": {
+        "operationId": "TlsCertificate",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/poolrpcTlsCertificateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/gatewayruntimeError"
+            }
+          }
+        },
+        "tags": [
+          "Trader"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1657,6 +1679,15 @@
           "type": "string",
           "format": "byte",
           "description": "The order nonce of the accepted order."
+        }
+      }
+    },
+    "poolrpcTlsCertificateResponse": {
+      "type": "object",
+      "properties": {
+        "certificate": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },

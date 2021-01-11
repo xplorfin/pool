@@ -6,9 +6,7 @@ package pool
 // Copyright (C) 2015-2019 The Lightning Network Developers
 
 import (
-	"bytes"
 	"fmt"
-	"strings"
 )
 
 // Commit stores the current commit hash of this build, this should be set
@@ -28,7 +26,7 @@ const (
 	// appPreRelease MUST only contain characters from semanticAlphabet per
 	// the semantic versioning spec.
 	appPreRelease        = "alpha"
-	appPrereleaseVersion = 4
+	appPrereleaseVersion = 1
 )
 
 // Version returns the application version as a properly formed string per the
@@ -41,27 +39,12 @@ func Version() string {
 	// by the semantic versioning spec is automatically appended and should
 	// not be contained in the pre-release string.  The pre-release version
 	// is not appended if it contains invalid characters.
-	preRelease := normalizeVerString(appPreRelease)
-	if preRelease != "" {
-		version = fmt.Sprintf("%s-%s.%d", version, preRelease, appPrereleaseVersion)
+	if appPreRelease != "" {
+		version = fmt.Sprintf("%s-%s.%d", version, appPreRelease, appPrereleaseVersion)
 	}
 
 	// Append commit hash of current build to version.
 	version = fmt.Sprintf("%s commit=%s", version, Commit)
 
 	return version
-}
-
-// normalizeVerString returns the passed string stripped of all characters
-// which are not valid according to the semantic versioning guidelines for
-// pre-release version and build metadata strings.  In particular they MUST
-// only contain characters in semanticAlphabet.
-func normalizeVerString(str string) string {
-	var result bytes.Buffer
-	for _, r := range str {
-		if strings.ContainsRune(semanticAlphabet, r) {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
 }

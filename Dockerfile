@@ -1,7 +1,7 @@
-FROM golang:1.14-alpine as builder
+FROM golang:1.15-alpine as builder
 
 # Copy in the local repository to build from.
-COPY . /go/src/github.com/lightninglabs/pool
+COPY . /go/src/github.com/xplorfin/pool
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
@@ -11,11 +11,9 @@ ENV GODEBUG netdns=cgo
 ENV GO111MODULE on
 
 # Install dependencies and install/build pool.
-RUN apk add --no-cache --update alpine-sdk \
-    git \
-    make \
-&&  cd /go/src/github.com/lightninglabs/pool \
-&&  make install
+RUN apk add --no-cache --update alpine-sdk git make
+
+RUN cd /go/src/github.com/xplorfin/pool && make install
 
 # Start a new, final image to reduce size.
 FROM alpine as final
@@ -28,8 +26,6 @@ COPY --from=builder /go/bin/pool /bin/
 COPY --from=builder /go/bin/poold /bin/
 
 # Add bash.
-RUN apk add --no-cache \
-    bash \
-    ca-certificates
+RUN apk add --no-cache bash ca-certificates
 
 ENTRYPOINT ["poold"]

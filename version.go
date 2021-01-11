@@ -27,7 +27,8 @@ const (
 
 	// appPreRelease MUST only contain characters from semanticAlphabet per
 	// the semantic versioning spec.
-	appPreRelease = "alpha"
+	appPreRelease        = "alpha"
+	appPrereleaseVersion = 3
 )
 
 // Version returns the application version as a properly formed string per the
@@ -42,7 +43,7 @@ func Version() string {
 	// is not appended if it contains invalid characters.
 	preRelease := normalizeVerString(appPreRelease)
 	if preRelease != "" {
-		version = fmt.Sprintf("%s-%s", version, preRelease)
+		version = fmt.Sprintf("%s-%s.%d", version, preRelease, appPrereleaseVersion)
 	}
 
 	// Append commit hash of current build to version.

@@ -8,6 +8,7 @@ require (
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/btcsuite/btcwallet v0.11.1-0.20201207233335-415f37ff11a1
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
+	github.com/btcsuite/btcwallet/walletdb v1.3.4
 	github.com/btcsuite/btcwallet/wtxmgr v1.2.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/golang/protobuf v1.3.3
@@ -21,6 +22,7 @@ require (
 	github.com/stretchr/testify v1.5.1
 	github.com/urfave/cli v1.20.0
 	go.etcd.io/bbolt v1.3.5-0.20200615073812-232d8fc87f50
+	golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
 	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
 	google.golang.org/genproto v0.0.0-20200513103714-09dca8ec2884
 	google.golang.org/grpc v1.29.1

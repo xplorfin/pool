@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"sync"
@@ -2057,16 +2058,23 @@ func (s *rpcServer) NodeRatings(ctx context.Context,
 	return s.auctioneer.NodeRating(ctx, pubKeys...)
 }
 
-func (s *rpcServer) TlsCertificate(_ context.Context,
-	_ *poolrpc.TlsCertificateRequest) (*poolrpc.TlsCertificateResponse, error) {
+func (s *rpcServer) TlsCertificate(_ context.Context, _ *poolrpc.TlsCertificateRequest) (*poolrpc.TlsCertificateResponse, error) {
+	var (
+		response = &poolrpc.TlsCertificateResponse{}
+		certPath string
+	)
 
-	response := &poolrpc.TlsCertificateResponse{}
+	if s.server.cfg.ExternalSSLProvider != "" {
+		certPath = fmt.Sprintf("%s/%s/tls.cert", s.server.cfg.BaseDir, s.server.cfg.ExternalSSLProvider)
+	} else {
+		certPath = s.server.cfg.TLSCertPath
+	}
 
-	if !lnrpc.FileExists(s.server.cfg.TLSCertPath) {
+	if !lnrpc.FileExists(certPath) {
 		return nil, errors.New("tls certificate somehow doesn't exist")
 	}
 
-	certBytes, err := ioutil.ReadFile(s.server.cfg.TLSCertPath)
+	certBytes, err := ioutil.ReadFile(certPath)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/pool/initializer"
+	"github.com/lightninglabs/pool/keychain"
 	"github.com/lightninglabs/pool/poolrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -13,6 +14,7 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -143,9 +145,28 @@ func Main(cfg *Config) error {
 
 	restProxyDest := cfg.RPCListen
 
+	var (
+		serverTLSCfg    *tls.Config
+		restClientCreds *credentials.TransportCredentials
+	)
+
+	// The real KeyRing isn't available until after the wallet is unlocked,
+	// but we need one now. Because we aren't encrypting anything here it can
+	// be an empty KeyRing.
+	var emptyKeyRing keychain.KeyRing
+	// If --tlsencryptkey is set then generate a throwaway TLS pair in memory
+	// so we can still have TLS even though the wallet isn't unlocked. These
+	// get thrown away for the real certificates once the wallet is unlocked.
+	// If TLSEncryptKey is false, then get the TLSConfig like normal.
 	// We'll need to start the server with TLS and connect the REST proxy
 	// client to it.
-	serverTLSCfg, restClientCreds, err := getTLSConfig(cfg)
+	//if cfg.TLSEncryptKey {
+	//	serverTLSCfg, restClientCreds, err = getEphemeralTLSConfig(cfg)
+	//} else {
+	//
+	//}
+
+	serverTLSCfg, restClientCreds, err = getTLSConfig(cfg, emptyKeyRing)
 	if err != nil {
 		return fmt.Errorf("could not create gRPC server options: %v",
 			err)
@@ -248,6 +269,31 @@ func Main(cfg *Config) error {
 	}
 
 	var initializerParams *InitializerParams
+
+	// If --tlsencryptkey is set, we previously generated a throwaway TLSConfig
+	// Now we want to remove that and load the persistent TLSConfig
+	// The wallet is unlocked at this point so we can use the real KeyRing
+	if cfg.TLSEncryptKey {
+		tmpCertPath := cfg.TLSCertPath + ".tmp"
+		tmpExternalCertPath := fmt.Sprintf("%s/%s/tls.cert.tmp", cfg.BaseDir, cfg.ExternalSSLProvider)
+
+		err = os.Remove(tmpCertPath)
+		if err != nil {
+			log.Warn("unable to delete temp cert at %v", tmpCertPath)
+		}
+
+		err = os.Remove(tmpExternalCertPath)
+		if err != nil {
+			log.Warn("unable to delete temp external cert at %v", tmpExternalCertPath)
+		}
+
+		serverTLSCfg, restClientCreds, err = getTLSConfig(cfg, emptyKeyRing)
+		if err != nil {
+			err := fmt.Errorf("unable to load TLS credentials: %v", err)
+			log.Error(err)
+			return err
+		}
+	}
 
 	traderServer := NewServer(cfg, serverTLSCfg, restProxyDest, *restClientCreds, getRpcListener, getRestListener)
 

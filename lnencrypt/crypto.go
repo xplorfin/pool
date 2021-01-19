@@ -12,16 +12,12 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// TODO(roasbeef): interface in front of?
-
 // baseEncryptionKeyLoc is the KeyLocator that we'll use to derive the base
 // encryption key used for encrypting all payloads. We use this to then
 // derive the actual key that we'll use for encryption. We do this
 // rather than using the raw key, as we assume that we can't obtain the raw
 // keys, and we don't want to require that the HSM know our target cipher for
 // encryption.
-//
-// TODO(roasbeef): possibly unique encrypt?
 var baseEncryptionKeyLoc = keychain.KeyLocator{
 	Family: keychain.KeyFamilyBaseEncryption,
 	Index:  0,
@@ -44,8 +40,6 @@ func genEncryptionKey(keyRing keychain.KeyRing) ([]byte, error) {
 	encryptionKey := sha256.Sum256(
 		baseKey.PubKey.SerializeCompressed(),
 	)
-
-	// TODO(roasbeef): throw back in ECDH?
 
 	return encryptionKey[:], nil
 }

@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/api/annotations.proto";
+import "trader.proto";
 
 package poolrpc;
 
@@ -21,6 +22,12 @@ service Initializer {
             body: "*"
         };
     }
+
+    rpc Ping (PingRequest) returns (PingResponse) {
+        option (google.api.http) = {
+            get: "/v1/ping"
+        };
+    };
 }
 
 message InitializeRequest {

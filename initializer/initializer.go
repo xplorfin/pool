@@ -86,6 +86,10 @@ func (ps *PooldInitializerService) InitializeService(ctx context.Context,
 	}
 }
 
+func (ps *PooldInitializerService) Ping(_ context.Context, _ *poolrpc.PingRequest) (*poolrpc.PingResponse, error) {
+	return &poolrpc.PingResponse{Pong: "pong!"}, nil
+}
+
 func validateLndAuthDetails(in *poolrpc.LndAuthDetails) error {
 	var validateError error
 

@@ -11,6 +11,28 @@
     "application/json"
   ],
   "paths": {
+    "/v1/ping": {
+      "get": {
+        "operationId": "Ping",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/poolrpcPingResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/gatewayruntimeError"
+            }
+          }
+        },
+        "tags": [
+          "Initializer"
+        ]
+      }
+    },
     "/v1/pool/service/initialize": {
       "post": {
         "summary": "Tells poold to initialize itself, create a macaroon,\nand connect to LND.",
@@ -26,7 +48,7 @@
           "default": {
             "description": "An unexpected error response",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/gatewayruntimeError"
             }
           }
         },
@@ -47,6 +69,27 @@
     }
   },
   "definitions": {
+    "gatewayruntimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
     "poolrpcInitializeRequest": {
       "type": "object",
       "properties": {
@@ -101,6 +144,14 @@
         }
       }
     },
+    "poolrpcPingResponse": {
+      "type": "object",
+      "properties": {
+        "pong": {
+          "type": "string"
+        }
+      }
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
@@ -110,27 +161,6 @@
         "value": {
           "type": "string",
           "format": "byte"
-        }
-      }
-    },
-    "runtimeError": {
-      "type": "object",
-      "properties": {
-        "error": {
-          "type": "string"
-        },
-        "code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "message": {
-          "type": "string"
-        },
-        "details": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/protobufAny"
-          }
         }
       }
     }

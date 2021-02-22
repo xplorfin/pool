@@ -234,6 +234,19 @@ service Trader {
             get: "/v1/pool/tls_certificate"
         };
     };
+
+    rpc Ping (PingRequest) returns (PingResponse) {
+        option (google.api.http) = {
+            get: "/v1/ping"
+        };
+    };
+}
+
+message PingRequest {
+}
+
+message PingResponse {
+    string pong = 1;
 }
 
 message InitAccountRequest {

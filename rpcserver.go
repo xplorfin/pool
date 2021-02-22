@@ -521,6 +521,10 @@ func (s *rpcServer) handleServerMessage(rpcMsg *poolrpc.ServerAuctionMessage) er
 	return nil
 }
 
+func (s *rpcServer) Ping(_ context.Context, _ *poolrpc.PingRequest) (*poolrpc.PingResponse, error) {
+	return &poolrpc.PingResponse{Pong: "pong!"}, nil
+}
+
 func (s *rpcServer) QuoteAccount(ctx context.Context,
 	req *poolrpc.QuoteAccountRequest) (*poolrpc.QuoteAccountResponse, error) {
 

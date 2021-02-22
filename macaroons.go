@@ -24,9 +24,27 @@ const (
 )
 
 var (
+	// RootKeyIDContextKey is the key to get rootKeyID from context.
+	RootKeyIDContextKey = contextKey{"rootkeyid"}
+
+	// DefaultRootKeyID is the ID of the default root key. The first is
+	// just 0, to emulate the memory storage that comes with bakery.
+	DefaultRootKeyID = []byte("0")
+)
+
+// contextKey is the type we use to identify values in the context.
+type contextKey struct {
+	Name string
+}
+
+var (
 	// RequiredPermissions is a map of all pool RPC methods and their
 	// required macaroon permissions to access poold.
 	RequiredPermissions = map[string][]bakery.Op{
+		"/poolrpc.Trader/Ping": {{
+			Entity: "account",
+			Action: "read",
+		}},
 		"/poolrpc.Trader/QuoteAccount": {{
 			Entity: "account",
 			Action: "read",
@@ -142,7 +160,7 @@ var (
 	// TODO(guggero): Allow the password to be specified by the user. Needs
 	// create/unlock calls in the RPC. Using a password should be optional
 	// though.
-	macDbDefaultPw = []byte("")
+	macDbDefaultPw = []byte("ello")
 )
 
 // startMacaroonService starts the macaroon validation service, creates or
@@ -160,7 +178,7 @@ func (s *Server) startMacaroonService(statelessInit bool) ([]byte, error) {
 
 	// Create the macaroon authentication/authorization service.
 	s.macaroonService, err = macaroons.NewService(
-		s.cfg.BaseDir, poolMacaroonLocation, false,
+		s.cfg.BaseDir, poolMacaroonLocation, statelessInit,
 		macDatabaseOpenTimeout, macaroons.IPLockChecker,
 	)
 	if err != nil {
@@ -190,13 +208,14 @@ func (s *Server) startMacaroonService(statelessInit bool) ([]byte, error) {
 // Yum.
 func (s *Server) bakeMacaroon() ([]byte, error) {
 	ctx := context.Background()
+	ctx = ContextWithRootKeyID(ctx, DefaultRootKeyID)
 
 	// We only generate one default macaroon that contains all
 	// existing permissions (equivalent to the admin.macaroon in
 	// lnd). Custom macaroons can be created through the bakery
 	// RPC.
-	poolMac, err := s.macaroonService.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, allPermissions...,
+	poolMac, err := s.macaroonService.NewMacaroon(
+		ctx, DefaultRootKeyID, allPermissions...,
 	)
 	if err != nil {
 		return nil, err
@@ -238,4 +257,11 @@ func (s *Server) macaroonInterceptor() (grpc.UnaryServerInterceptor,
 		RequiredPermissions,
 	)
 	return unaryInterceptor, streamInterceptor
+}
+
+// ContextWithRootKeyID passes the root key ID value to context.
+func ContextWithRootKeyID(ctx context.Context,
+	value interface{}) context.Context {
+
+	return context.WithValue(ctx, RootKeyIDContextKey, value)
 }

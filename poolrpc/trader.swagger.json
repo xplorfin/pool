@@ -34,6 +34,28 @@
         ]
       }
     },
+    "/v1/ping": {
+      "get": {
+        "operationId": "Ping",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/poolrpcPingResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/gatewayruntimeError"
+            }
+          }
+        },
+        "tags": [
+          "Trader"
+        ]
+      }
+    },
     "/v1/pool/accounts": {
       "get": {
         "summary": "pool: `accounts list`\nListAccounts returns a list of all accounts known to the trader daemon and\ntheir current state.",
@@ -1575,6 +1597,14 @@
           "items": {
             "$ref": "#/definitions/poolrpcOutput"
           }
+        }
+      }
+    },
+    "poolrpcPingResponse": {
+      "type": "object",
+      "properties": {
+        "pong": {
+          "type": "string"
         }
       }
     },

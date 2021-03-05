@@ -8,12 +8,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"google.golang.org/grpc/credentials"
-	"gopkg.in/macaroon.v2"
 	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
+
+	"google.golang.org/grpc/credentials"
+	"gopkg.in/macaroon.v2"
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/aperture/lsat"
@@ -238,7 +239,7 @@ func (s *Server) Start() error {
 			return nil
 		}
 
-		s.restProxy = &http.Server{Handler: s.mux}
+		s.restProxy = &http.Server{Handler: allowCORS(s.mux, []string{"*"})}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()

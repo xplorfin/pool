@@ -4,6 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/pool/initializer"
 	"github.com/lightninglabs/pool/keychain"
@@ -12,12 +19,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"gopkg.in/macaroon-bakery.v2/bakery"
-	"net"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
@@ -394,7 +395,7 @@ func waitForServiceInit(serverOpts []grpc.ServerOption,
 		return nil, initializerCleanup, err
 	}
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: allowCORS(mux, []string{"*"})}
 
 	restListener, restCleanup, err := getRestListener()
 	if err != nil {
@@ -427,4 +428,57 @@ func waitForServiceInit(serverOpts []grpc.ServerOption,
 	case <-signal.ShutdownChannel():
 		return nil, initializerCleanup, fmt.Errorf("shutting down")
 	}
+}
+
+// allowCORS wraps the given http.Handler with a function that adds the
+// Access-Control-Allow-Origin header to the response.
+func allowCORS(handler http.Handler, origins []string) http.Handler {
+	allowHeaders := "Access-Control-Allow-Headers"
+	allowMethods := "Access-Control-Allow-Methods"
+	allowOrigin := "Access-Control-Allow-Origin"
+
+	// If the user didn't supply any origins that means CORS is disabled
+	// and we should return the original handler.
+	if len(origins) == 0 {
+		return handler
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+
+		// Skip everything if the browser doesn't send the Origin field.
+		if origin == "" {
+			handler.ServeHTTP(w, r)
+			return
+		}
+
+		// Set the static header fields first.
+		// Both a canonicalized and non-canonicalized "grpc-metadata-macaroon" value are
+		// set to allow browsers which perform preflight requests and also don't canonicalize
+		// the HTTP headers they send (*cough cough CHROME*).
+		w.Header()[allowHeaders] = []string{"Content-Type, Accept, Grpc-Metadata-Macaroon, Grpc-Metadata-macaroon"}
+
+		w.Header().Set(allowMethods, "GET, POST, DELETE")
+
+		// Either we allow all origins or the incoming request matches
+		// a specific origin in our list of allowed origins.
+		for _, allowedOrigin := range origins {
+			if allowedOrigin == "*" || origin == allowedOrigin {
+				// Only set allowed origin to requested origin.
+				w.Header().Set(allowOrigin, origin)
+
+				break
+			}
+		}
+
+		// For a pre-flight request we only need to send the headers
+		// back. No need to call the rest of the chain.
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		// Everything's prepared now, we can pass the request along the
+		// chain of handlers.
+		handler.ServeHTTP(w, r)
+	})
 }

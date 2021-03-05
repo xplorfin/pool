@@ -166,8 +166,6 @@ func (s *Server) Start() error {
 	s.shutdownFuncs["clientdb"] = s.db.Close
 	s.shutdownFuncs["auctioneer"] = s.AuctioneerClient.Stop
 
-	poolrpc.RegisterTraderServer(s.grpcServer, s.rpcServer)
-
 	// Instantiate the trader gRPC server and start it.
 	s.rpcServer = newRPCServer(s)
 	if startErr := s.rpcServer.Start(); startErr != nil {
@@ -198,6 +196,8 @@ func (s *Server) Start() error {
 	// connection (but maybe a UNIX socket or bufconn). So we don't spin up
 	// a REST listener in that case.
 	log.Infof("Starting gRPC listener")
+
+	poolrpc.RegisterTraderServer(s.grpcServer, s.rpcServer)
 
 	s.grpcListener = s.cfg.RPCListener
 	if s.grpcListener == nil {

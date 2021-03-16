@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -77,6 +78,7 @@ type Server struct {
 	lndServices           *lndclient.GrpcLndServices
 	lndClient             lnrpc.LightningClient
 	grpcServer            *grpc.Server
+	serverCreds           credentials.TransportCredentials
 	restProxy             *http.Server
 	restProxyDest         string
 	restClientCredentials credentials.TransportCredentials
@@ -97,13 +99,14 @@ type Server struct {
 }
 
 // NewServer creates a new trader server.
-func NewServer(cfg *Config, tlsCfg *tls.Config, restProxyDest string,
+func NewServer(cfg *Config, serverCreds credentials.TransportCredentials, tlsCfg *tls.Config, restProxyDest string,
 	restClientCredentials credentials.TransportCredentials,
 	getRpcListener, getRestListener tcpListener) *Server {
 
 	return &Server{
 		cfg:                   cfg,
 		tlsCfg:                tlsCfg,
+		serverCreds:           serverCreds,
 		getRpcListener:        getRpcListener,
 		getRestListener:       getRestListener,
 		restProxyDest:         restProxyDest,
@@ -131,10 +134,15 @@ func (s *Server) Start() error {
 	var restCtx context.Context
 
 	proxyOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(s.restClientCredentials),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+			grpc.MaxCallRecvMsgSize(1024 * 1024 * 200),
 		),
+	}
+
+	if s.cfg.DisableTLS {
+		proxyOpts = append(proxyOpts, grpc.WithInsecure())
+	} else {
+		proxyOpts = append(proxyOpts, grpc.WithTransportCredentials(s.restClientCredentials))
 	}
 
 	var lndErr error
@@ -148,9 +156,47 @@ func (s *Server) Start() error {
 		return nil
 	}
 
+	var lndTransportCreds credentials.TransportCredentials
+
+	if s.cfg.Lnd.RawTLSCert != "" {
+		decodedCert, err := base64.StdEncoding.DecodeString(s.cfg.Lnd.RawTLSCert)
+		if err != nil {
+			return err
+		}
+
+		cp := x509.NewCertPool()
+
+		if !cp.AppendCertsFromPEM(decodedCert) {
+			return fmt.Errorf("failed to append cert to x509 cert pool")
+		}
+
+		tlsCfg := &tls.Config{
+			InsecureSkipVerify: true,
+			RootCAs:            cp,
+		}
+
+		lndTransportCreds = credentials.NewTLS(tlsCfg)
+	} else {
+		lndTlsPath := s.cfg.Lnd.TLSPath
+
+		tc, err := credentials.NewClientTLSFromFile(lndTlsPath, "")
+		if err != nil {
+			return err
+		}
+
+		lndTransportCreds = tc
+	}
+
+	lndDialOpts := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(1024 * 1024 * 200),
+		),
+		grpc.WithTransportCredentials(lndTransportCreds),
+	}
+
 	// As there're some other lower-level operations we may need access to,
 	// we'll also make a connection for a "basic client".
-	grpcConn, err := s.getBasicLndClient(proxyOpts)
+	grpcConn, err := s.getBasicLndClient(lndDialOpts)
 	if err != nil {
 		return err
 	}
@@ -186,6 +232,10 @@ func (s *Server) Start() error {
 			errorLogUnaryServerInterceptor(rpcLog),
 			unaryMacIntercept,
 		),
+	}
+
+	if !s.cfg.DisableTLS {
+		serverOpts = append(serverOpts, grpc.Creds(s.serverCreds))
 	}
 
 	s.grpcServer = grpc.NewServer(serverOpts...)
@@ -232,7 +282,13 @@ func (s *Server) Start() error {
 			return fmt.Errorf("REST proxy unable to listen on %s",
 				s.cfg.RESTListen)
 		}
-		s.restListener = tls.NewListener(restListener, s.tlsCfg)
+
+		if s.cfg.DisableTLS {
+			s.restListener = restListener
+		} else {
+			s.restListener = tls.NewListener(restListener, s.tlsCfg)
+		}
+
 		s.shutdownFuncs["restListener"] = func() error {
 			restCleanup()
 
@@ -251,7 +307,7 @@ func (s *Server) Start() error {
 			}
 		}()
 	}
-	s.grpcListener = tls.NewListener(s.grpcListener, s.tlsCfg)
+	// s.grpcListener = tls.NewListener(s.grpcListener, s.tlsCfg)
 	s.shutdownFuncs["rpcListener"] = s.grpcListener.Close
 
 	// Start the grpc server.

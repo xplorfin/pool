@@ -45,6 +45,10 @@ var (
 			Entity: "account",
 			Action: "read",
 		}},
+		"/poolrpc.Trader/TlsCertificate": {{
+			Entity: "account",
+			Action: "read",
+		}},
 		"/poolrpc.Trader/QuoteAccount": {{
 			Entity: "account",
 			Action: "read",

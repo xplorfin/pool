@@ -261,11 +261,11 @@ var fileDescriptor_fb6f168f5b28a3e9 = []byte{
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
-var _ grpc.ClientConn
+var _ grpc.ClientConnInterface
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+const _ = grpc.SupportPackageIsVersion6
 
 // InitializerClient is the client API for Initializer service.
 //
@@ -283,10 +283,10 @@ type InitializerClient interface {
 }
 
 type initializerClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewInitializerClient(cc *grpc.ClientConn) InitializerClient {
+func NewInitializerClient(cc grpc.ClientConnInterface) InitializerClient {
 	return &initializerClient{cc}
 }
 

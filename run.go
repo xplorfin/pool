@@ -186,7 +186,11 @@ func Main(cfg *Config) error {
 	}
 
 	serverCreds := credentials.NewTLS(serverTLSCfg)
-	serverOpts := []grpc.ServerOption{grpc.Creds(serverCreds)}
+	serverOpts := make([]grpc.ServerOption, 0)
+
+	if !cfg.DisableTLS {
+		serverOpts = append(serverOpts, grpc.Creds(serverCreds))
+	}
 
 	// For our REST dial options, we'll still use TLS, but also increase
 	// the max message size that we'll decode to allow clients to hit
@@ -194,10 +198,15 @@ func Main(cfg *Config) error {
 	// We set this to 200MiB atm. Should be the same value as maxMsgRecvSize
 	// in cmd/lncli/main.go.
 	restDialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(*restClientCreds),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+			grpc.MaxCallRecvMsgSize(1024 * 1024 * 200),
 		),
+	}
+
+	if cfg.DisableTLS {
+		restDialOpts = append(restDialOpts, grpc.WithInsecure())
+	} else {
+		restDialOpts = append(restDialOpts, grpc.WithTransportCredentials(*restClientCreds))
 	}
 
 	// getRpcListener is a closure that creates a listener from the
@@ -296,7 +305,7 @@ func Main(cfg *Config) error {
 		}
 	}
 
-	traderServer := NewServer(cfg, serverTLSCfg, restProxyDest, *restClientCreds, getRpcListener, getRestListener)
+	traderServer := NewServer(cfg, serverCreds, serverTLSCfg, restProxyDest, *restClientCreds, getRpcListener, getRestListener)
 
 	poolMacBytes, err := traderServer.startMacaroonService(cfg.StatelessInit)
 	if err != nil {
@@ -311,7 +320,7 @@ func Main(cfg *Config) error {
 		)
 
 		if initializerErr != nil {
-			return fmt.Errorf("unable to initialize poold service :(")
+			return fmt.Errorf("unable to initialize poold service: %[1]v", initializerErr)
 		}
 
 		lndAuthDetails = params.LndAuthDetails
@@ -319,6 +328,7 @@ func Main(cfg *Config) error {
 
 		initializerParams.MacResponseChan <- poolMacBytes
 
+		log.Info("Shutting down Initializer server")
 		shutdown()
 
 		cfg.Lnd = &LndConfig{

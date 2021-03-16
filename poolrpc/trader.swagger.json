@@ -705,7 +705,7 @@
         ]
       }
     },
-    "/v1/pool/tls_certificate": {
+    "/v1/pool/tlscertificate": {
       "get": {
         "operationId": "TlsCertificate",
         "responses": {

@@ -5,6 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/lightninglabs/pool/certprovider"
 	"github.com/lightninglabs/pool/keychain"
 	"github.com/lightninglabs/pool/lnencrypt"
@@ -12,11 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc/credentials"
-	"io/ioutil"
-	"net/http"
-	"os"
-	"strings"
-	"time"
 )
 
 const (
@@ -40,16 +41,8 @@ func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config, *credenti
 		privateKeyPrefix []byte
 	)
 
-	switch cfg.ExternalSSLProvider {
-	case "":
-		keyType = "ec"
-		privateKeyPrefix = []byte("-----BEGIN EC PRIVATE KEY-----")
-	default:
-		keyType = "rsa"
-		privateKeyPrefix = []byte("-----BEGIN RSA PRIVATE KEY-----")
-	}
-
-	externalSSLCertPath := fmt.Sprintf("%s/%s/tls.cert", cfg.BaseDir, cfg.ExternalSSLProvider)
+	keyType = "rsa"
+	privateKeyPrefix = []byte("-----BEGIN RSA PRIVATE KEY-----")
 
 	// Let's load our certificate first or create then load if it doesn't
 	// yet exist.
@@ -57,9 +50,6 @@ func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config, *credenti
 		err := generateSelfSignedCert(cfg, keyRing, keyType)
 		if err != nil {
 			return nil, nil, err
-		}
-		if cfg.ExternalSSLProvider != "" {
-			os.Remove(externalSSLCertPath)
 		}
 	}
 
@@ -108,31 +98,6 @@ func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config, *credenti
 		}
 	}
 
-	var externalCertData tls.Certificate
-	if cfg.ExternalSSLProvider != "" {
-		// Ensure we create external TLS certificate if they don't exist.
-		if !lnrpc.FileExists(externalSSLCertPath) {
-			log.Infof("Requesting external certificate for domain %v",
-				cfg.ExternalSSLDomain)
-			_, err = createExternalCert(
-				cfg, keyBytes, externalSSLCertPath,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		externalCertBytes, err := ioutil.ReadFile(externalSSLCertPath)
-		if err != nil {
-			return nil, nil, err
-		}
-		externalCertData, _, err = pooltls.LoadCertBytes(
-			externalCertBytes, keyBytes,
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
 	certData, parsedCert, err := pooltls.LoadCertBytes(certBytes, keyBytes)
 	if err != nil {
 		return nil, nil, err
@@ -169,13 +134,6 @@ func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config, *credenti
 			return nil, nil, err
 		}
 
-		if cfg.ExternalSSLProvider != "" {
-			err = os.Remove(externalSSLCertPath)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
 		err = generateSelfSignedCert(cfg, keyRing, keyType)
 		if err != nil {
 			return nil, nil, err
@@ -189,30 +147,6 @@ func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config, *credenti
 		keyBytes, err := ioutil.ReadFile(cfg.TLSKeyPath)
 		if err != nil {
 			return nil, nil, err
-		}
-
-		if cfg.ExternalSSLProvider != "" {
-			// Ensure we create external TLS certificate if they don't exist.
-			if !lnrpc.FileExists(externalSSLCertPath) {
-				log.Infof("Requesting external certificate for domain %v",
-					cfg.ExternalSSLDomain)
-				_, err = createExternalCert(
-					cfg, keyBytes, externalSSLCertPath,
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-			}
-			externalCertBytes, err := ioutil.ReadFile(externalSSLCertPath)
-			if err != nil {
-				return nil, nil, err
-			}
-			externalCertData, _, err = pooltls.LoadCertBytes(
-				externalCertBytes, keyBytes,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
 		}
 
 		// If key encryption is set, then decrypt the file.
@@ -235,9 +169,6 @@ func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config, *credenti
 	}
 
 	certList := []tls.Certificate{certData}
-	if cfg.ExternalSSLProvider != "" {
-		certList = append(certList, externalCertData)
-	}
 
 	tlsCfg := pooltls.TLSConfFromCert(certList)
 	restCreds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")

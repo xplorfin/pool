@@ -231,7 +231,7 @@ service Trader {
     rpc TlsCertificate (TlsCertificateRequest)
         returns (TlsCertificateResponse) {
         option (google.api.http) = {
-            get: "/v1/pool/tls_certificate"
+            get: "/v1/pool/tlscertificate"
         };
     };
 

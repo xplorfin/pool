@@ -1709,7 +1709,7 @@ var (
 
 	pattern_Trader_BatchSnapshots_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "pool", "batch", "snapshots", "start_batch_id", "num_batches_back"}, "", runtime.AssumeColonVerbOpt(true)))
 
-	pattern_Trader_TlsCertificate_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "pool", "tls_certificate"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Trader_TlsCertificate_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "pool", "tlscertificate"}, "", runtime.AssumeColonVerbOpt(true)))
 
 	pattern_Trader_Ping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "ping"}, "", runtime.AssumeColonVerbOpt(true)))
 )

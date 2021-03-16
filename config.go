@@ -93,6 +93,8 @@ type Config struct {
 	TLSDisableAutofill bool     `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set."`
 	TLSEncryptKey      bool     `long:"tlsencryptkey" description:"Automatically encrypts the TLS private key and generates ephemeral TLS key pairs when the wallet is locked or not initialized"`
 
+	DisableTLS bool `long:"disabletls" description:"Disables TLS on the gRPC and REST listeners; only use if your Pool setup is behind some kind of proxy (or if you just don't care)'"`
+
 	ExternalSSLProvider string `long:"externalsslprovider" description:"The provider to use when requesting SSL Certificates"`
 	ExternalSSLPort     int    `long:"externalsslport" description:"The port on which lnd will listen for certificate validation challenges."`
 	ExternalSSLDomain   string `long:"externalssldomain" description:"Request an external certificate for this domain"`
@@ -153,6 +155,7 @@ func DefaultConfig() Config {
 			Host: "localhost:10009",
 		},
 		StatelessInit: false,
+		DisableTLS:    false,
 	}
 }
 

@@ -27,6 +27,14 @@ var (
 		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 	}
+	allTlsCipherSuites = []uint16{
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+	}
 )
 
 // LoadCertBytes loads a certificate and its corresponding private key from the
@@ -71,13 +79,13 @@ func TLSConfFromCert(certData []tls.Certificate) *tls.Config {
 		config = &tls.Config{
 			Certificates:   []tls.Certificate{certData[0]},
 			GetCertificate: getCertificate,
-			CipherSuites:   tlsRSACipherSuites,
+			CipherSuites:   allTlsCipherSuites,
 			MinVersion:     tls.VersionTLS12,
 		}
 	} else {
 		config = &tls.Config{
 			Certificates: []tls.Certificate{certData[0]},
-			CipherSuites: tlsCipherSuites,
+			CipherSuites: allTlsCipherSuites,
 			MinVersion:   tls.VersionTLS12,
 		}
 	}

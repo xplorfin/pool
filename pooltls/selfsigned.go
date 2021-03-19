@@ -10,13 +10,14 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"github.com/lightninglabs/pool/keychain"
-	"github.com/lightninglabs/pool/lnencrypt"
 	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
 	"time"
+
+	"github.com/lightninglabs/pool/keychain"
+	"github.com/lightninglabs/pool/lnencrypt"
 )
 
 const (
@@ -182,7 +183,8 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	var keyBytes []byte
 	var encodeString string
 
-	if keyType == "ec" {
+	switch keyType {
+	case "ec":
 		priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return nil, nil, err
@@ -199,7 +201,7 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 			return nil, nil, fmt.Errorf("unable to encode privkey: %v", err)
 		}
 		encodeString = "EC PRIVATE KEY"
-	} else if keyType == "rsa" {
+	case "rsa":
 		priv, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return nil, nil, err
@@ -212,11 +214,8 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 		}
 
 		keyBytes = x509.MarshalPKCS1PrivateKey(priv)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to encode privkey: %v", err)
-		}
 		encodeString = "RSA PRIVATE KEY"
-	} else {
+	default:
 		return nil, nil, fmt.Errorf("Unknown keyType: %s", keyType)
 	}
 

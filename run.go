@@ -235,10 +235,21 @@ func Main(cfg *Config) error {
 	}
 
 	getRestListener := func() (*ListenerWithSignal, func(), error) {
-		var restListener *ListenerWithSignal
-		// Start a gRPC server listening for HTTP/2
+		var (
+			restListener *ListenerWithSignal
+			lis          net.Listener
+			err          error
+		)
+
+		// Start a REST server listening for HTTP
 		// connections.
-		lis, err := tls.Listen("tcp", cfg.RESTListen, serverTLSCfg)
+
+		if cfg.DisableTLS {
+			lis, err = net.Listen("tcp", cfg.RESTListen)
+		} else {
+			lis, err = tls.Listen("tcp", cfg.RESTListen, serverTLSCfg)
+		}
+
 		if err != nil {
 			log.Errorf("unable to listen on %s",
 				cfg.RESTListen)
